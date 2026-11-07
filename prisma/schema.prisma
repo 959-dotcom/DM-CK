@@ -63,12 +63,33 @@ model User {
   subscriptionStatus SubscriptionStatus @default(FREE) @map("subscription_status")
   planId             String?            @map("plan_id")
   planExpireAt       DateTime?          @map("plan_expire_at")
+  disabled           Boolean            @default(false)
+  failedLoginCount   Int                @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?          @map("locked_until")
   createdAt          DateTime           @default(now()) @map("created_at")
   plan               Plan?              @relation(fields: [planId], references: [id])
   transactions       Transaction[]
   domains            Domain[]
 
   @@map("users")
+}
+
+model SystemMeta {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("system_meta")
+}
+
+model LoginAttempt {
+  id        String   @id
+  email     String
+  ip        String?
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("login_attempts")
 }
 
 model Transaction {

@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
+import { apiFetch } from "@/lib/client-fetch";
 import { Plus, RefreshCw, Power, Trash2, LogOut } from "lucide-react";
 
 type DomainRow = {
@@ -22,6 +23,7 @@ type DomainRow = {
 type Me = {
   user: {
     email: string;
+    role?: string;
     subscription_status: string;
     plan_expire_at: string | null;
     telegram_chat_id: string | null;
@@ -54,8 +56,8 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     const [meRes, domRes] = await Promise.all([
-      fetch("/api/auth/me", { credentials: "include" }),
-      fetch("/api/domains", { credentials: "include" }),
+      apiFetch("/api/auth/me"),
+      apiFetch("/api/domains"),
     ]);
     if (meRes.status === 401) {
       router.push("/login");
@@ -75,9 +77,8 @@ export default function DashboardPage() {
     setError("");
     setBusy("add");
     try {
-      const res = await fetch("/api/domains", {
+      const res = await apiFetch("/api/domains", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
@@ -94,7 +95,7 @@ export default function DashboardPage() {
 
   async function toggleMonitor(id: string, enabled: boolean) {
     setBusy(id);
-    await fetch(`/api/domains/${id}`, {
+    await apiFetch(`/api/domains/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ monitoring_enabled: !enabled }),
@@ -105,7 +106,7 @@ export default function DashboardPage() {
 
   async function recheck(id: string) {
     setBusy(id);
-    await fetch(`/api/domains/${id}/check`, { method: "POST" });
+    await apiFetch(`/api/domains/${id}/check`, { method: "POST" });
     await load();
     setBusy(null);
   }
@@ -113,13 +114,13 @@ export default function DashboardPage() {
   async function remove(id: string) {
     if (!confirm("ลบโดเมนนี้?")) return;
     setBusy(id);
-    await fetch(`/api/domains/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/domains/${id}`, { method: "DELETE" });
     await load();
     setBusy(null);
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await apiFetch("/api/auth/logout", { method: "POST" });
     router.push("/");
   }
 
@@ -142,6 +143,14 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            {me?.user.role === "ADMIN" && (
+              <Link
+                href="/admin"
+                className="rounded-md border border-ember-600/40 px-4 py-2 text-sm text-ember-400 hover:bg-ember-600/10"
+              >
+                Admin
+              </Link>
+            )}
             <Link
               href="/billing"
               className="rounded-md border border-white/10 px-4 py-2 text-sm hover:bg-white/5"

@@ -3,8 +3,12 @@ import { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { sqlOne } from "./db";
+import { setCsrfCookie, clearCsrfCookie } from "./security/csrf";
+import { COOKIE_NAME } from "./session-cookie";
 
-const COOKIE_NAME = "spinlytics_session";
+/** Access JWT TTL — short-lived; sliding refresh via /api/auth/me + /api/auth/refresh. */
+const ACCESS_TTL = process.env.JWT_ACCESS_TTL?.trim() || "2h";
+const ACCESS_MAX_AGE_SEC = Number(process.env.JWT_ACCESS_MAX_AGE_SEC || 2 * 60 * 60);
 
 export type SessionUser = {
   id: string;
@@ -14,6 +18,7 @@ export type SessionUser = {
   plan_id: string | null;
   plan_expire_at: string | null;
   telegram_chat_id: string | null;
+  disabled: boolean;
 };
 
 function secretKey() {
@@ -45,13 +50,13 @@ export async function createSessionToken(user: {
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    .setExpirationTime(ACCESS_TTL)
     .sign(secretKey());
 }
 
 export async function verifySessionToken(
   token: string,
-): Promise<{ sub: string; email: string; role: string } | null> {
+): Promise<{ sub: string; email: string; role: string; exp?: number } | null> {
   try {
     const { payload } = await jwtVerify(token, secretKey());
     if (!payload.sub || typeof payload.email !== "string") return null;
@@ -59,6 +64,7 @@ export async function verifySessionToken(
       sub: payload.sub,
       email: payload.email,
       role: String(payload.role || "USER"),
+      exp: typeof payload.exp === "number" ? payload.exp : undefined,
     };
   } catch {
     return null;
@@ -72,13 +78,15 @@ export async function setSessionCookie(token: string) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: ACCESS_MAX_AGE_SEC,
   });
+  await setCsrfCookie();
 }
 
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.delete(COOKIE_NAME);
+  await clearCsrfCookie();
 }
 
 export async function getTokenFromRequest(
@@ -103,17 +111,49 @@ export async function getCurrentUser(
 
   const user = await sqlOne<SessionUser>(
     `SELECT id, email, role, subscription_status, plan_id,
-            plan_expire_at::text, telegram_chat_id
+            plan_expire_at::text, telegram_chat_id,
+            COALESCE(disabled, FALSE) AS disabled
      FROM users WHERE id = $1`,
     [payload.sub],
   );
+  if (!user || user.disabled) return null;
   return user;
+}
+
+/** Rotate session cookie when less than 30 minutes remain. */
+export async function maybeRefreshSession(
+  req?: NextRequest,
+): Promise<string | null> {
+  const token = await getTokenFromRequest(req);
+  if (!token) return null;
+  const payload = await verifySessionToken(token);
+  if (!payload?.exp) return null;
+  const remainingSec = payload.exp - Math.floor(Date.now() / 1000);
+  if (remainingSec > 30 * 60) return null;
+
+  const user = await getCurrentUser(req);
+  if (!user) return null;
+  const next = await createSessionToken({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+  await setSessionCookie(next);
+  return next;
 }
 
 export async function requireUser(req?: NextRequest): Promise<SessionUser> {
   const user = await getCurrentUser(req);
   if (!user) {
     throw new AuthError("Unauthorized", 401);
+  }
+  return user;
+}
+
+export async function requireAdmin(req?: NextRequest): Promise<SessionUser> {
+  const user = await requireUser(req);
+  if (user.role !== "ADMIN") {
+    throw new AuthError("Forbidden — admin only", 403);
   }
   return user;
 }
@@ -126,4 +166,4 @@ export class AuthError extends Error {
   }
 }
 
-export { COOKIE_NAME };
+export { COOKIE_NAME, ACCESS_TTL, ACCESS_MAX_AGE_SEC };

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { apiFetch } from "@/lib/client-fetch";
 import { DEFAULT_PROMPTPAY_ID } from "@/lib/constants";
 
 type Plan = {
@@ -38,12 +39,12 @@ export default function BillingPage() {
 
   useEffect(() => {
     (async () => {
-      const me = await fetch("/api/auth/me", { credentials: "include" });
+      const me = await apiFetch("/api/auth/me");
       if (me.status === 401) {
         router.push("/login");
         return;
       }
-      const res = await fetch("/api/plans", { credentials: "include" });
+      const res = await apiFetch("/api/plans");
       const data = await res.json();
       setPlans(
         (data.plans || []).filter((p: Plan) => Number(p.price) > 0),
@@ -56,7 +57,7 @@ export default function BillingPage() {
     setMessage("");
     setLoading(true);
     try {
-      const res = await fetch("/api/transactions", {
+      const res = await apiFetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan_id: planId }),
@@ -80,10 +81,13 @@ export default function BillingPage() {
     try {
       const form = new FormData();
       form.append("slip", file);
-      const res = await fetch(`/api/transactions/${pending.transaction.id}/slip`, {
-        method: "POST",
-        body: form,
-      });
+      const res = await apiFetch(
+        `/api/transactions/${pending.transaction.id}/slip`,
+        {
+          method: "POST",
+          body: form,
+        },
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verify failed");
       setMessage(

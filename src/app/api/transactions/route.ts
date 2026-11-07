@@ -3,10 +3,16 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { newId, sql, sqlOne } from "@/lib/db";
 import { generatePromptPayQr } from "@/lib/promptpay";
-import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
+import { assertCsrf } from "@/lib/security/csrf";
+import {
+  clientIp,
+  RATE_PRESETS,
+  rateLimit,
+} from "@/lib/security/rate-limit";
 
 const createSchema = z.object({
-  plan_id: z.string().min(1),
+  plan_id: z.string().min(1).max(64),
 });
 
 export async function GET(req: NextRequest) {
@@ -30,6 +36,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    assertCsrf(req);
+    const ip = clientIp(req);
+    const rl = rateLimit({ key: `payment:${ip}`, ...RATE_PRESETS.payment });
+    if (!rl.ok) {
+      return withRateLimitHeaders(
+        jsonError("Too many payment requests", 429, {
+          retryAfterSec: rl.retryAfterSec,
+        }),
+        rl,
+      );
+    }
+
     const user = await requireUser(req);
     const body = createSchema.parse(await req.json());
     const plan = await sqlOne<{
@@ -56,21 +74,24 @@ export async function POST(req: NextRequest) {
       [id, user.id, plan.id, amount, qrRef],
     );
 
-    return jsonOk({
-      transaction: {
-        id,
-        plan_id: plan.id,
-        plan_name: plan.name,
-        amount,
-        payment_status: "PENDING",
-        qr_ref: qrRef,
-      },
-      promptpay: {
-        id: qr.promptpayId,
-        payload: qr.payload,
-        qr_data_url: qr.dataUrl,
-      },
-    });
+    return withRateLimitHeaders(
+      jsonOk({
+        transaction: {
+          id,
+          plan_id: plan.id,
+          plan_name: plan.name,
+          amount,
+          payment_status: "PENDING",
+          qr_ref: qrRef,
+        },
+        promptpay: {
+          id: qr.promptpayId,
+          payload: qr.payload,
+          qr_data_url: qr.dataUrl,
+        },
+      }),
+      rl,
+    );
   } catch (err) {
     return handleRouteError(err);
   }

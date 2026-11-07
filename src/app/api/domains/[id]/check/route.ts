@@ -3,12 +3,14 @@ import { requireUser } from "@/lib/auth";
 import { sqlOne } from "@/lib/db";
 import { runDomainCheck } from "@/lib/domain-check";
 import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { assertCsrf } from "@/lib/security/csrf";
 
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertCsrf(req);
     const user = await requireUser(req);
     const { id } = await ctx.params;
     const domain = await sqlOne<{ id: string; user_id: string }>(

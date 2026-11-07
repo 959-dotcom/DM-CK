@@ -54,6 +54,36 @@ export async function notifyAdminPayment(opts: {
   );
 }
 
+export async function notifyUserPaymentDecision(opts: {
+  chatId?: string | null;
+  email: string;
+  planName: string;
+  amount: number;
+  transactionId: string;
+  status: "APPROVED" | "REJECTED";
+  note?: string | null;
+}): Promise<void> {
+  const text = [
+    `<b>Spinlytics — Payment ${opts.status}</b>`,
+    `User: ${opts.email}`,
+    `Plan: ${opts.planName}`,
+    `Amount: ฿${opts.amount}`,
+    `Txn: ${opts.transactionId}`,
+    opts.note ? `Note: ${opts.note}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (opts.chatId) {
+    await sendMessage(opts.chatId, text);
+  }
+
+  const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID?.trim();
+  if (adminChat && adminChat !== opts.chatId) {
+    await sendMessage(adminChat, text);
+  }
+}
+
 export async function notifyUserDomainBlock(opts: {
   chatId?: string | null;
   domain: string;
