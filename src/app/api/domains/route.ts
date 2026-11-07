@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
-import { newId, sql, sqlOne } from "@/lib/db";
+import { newId, sql } from "@/lib/db";
 import { runDomainCheck } from "@/lib/domain-check";
+import { domainQuotaForUser } from "@/lib/plans";
 import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
 import { assertCsrf } from "@/lib/security/csrf";
 import {
@@ -66,21 +67,10 @@ export async function POST(req: NextRequest) {
     const user = await requireUser(req);
     const body = createSchema.parse(await req.json());
 
-    const plan = user.plan_id
-      ? await sqlOne<{ max_domains: number }>(
-          `SELECT max_domains FROM plans WHERE id = $1`,
-          [user.plan_id],
-        )
-      : { max_domains: 1 };
-
-    const count = await sqlOne<{ count: number }>(
-      `SELECT count(*)::int AS count FROM domains WHERE user_id = $1`,
-      [user.id],
-    );
-    const max = plan?.max_domains ?? 1;
-    if ((count?.count ?? 0) >= max) {
+    const quota = await domainQuotaForUser(user.id);
+    if (quota.used >= quota.total_slots) {
       return jsonError(
-        `Plan quota reached (${max} domain${max === 1 ? "" : "s"}). Upgrade to add more.`,
+        `Domain quota reached (${quota.total_slots} = ${quota.max_domains} plan + ${quota.extra_domain_slots} extra). Upgrade or buy Extra Domain slots.`,
         403,
       );
     }

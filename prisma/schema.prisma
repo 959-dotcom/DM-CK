@@ -1,4 +1,4 @@
-// Prisma-shaped schema kept in sync with migrations/001_init.sql
+// Prisma-shaped schema kept in sync with migrations/*.sql
 // Runtime uses pg + PGlite via src/lib/db.ts (publish-app compatible).
 
 generator client {
@@ -22,6 +22,11 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
 enum PaymentStatus {
   PENDING
   APPROVED
@@ -41,15 +46,25 @@ enum IspStatus {
 }
 
 model Plan {
-  id                    String   @id
-  name                  String
-  price                 Decimal  @db.Decimal(12, 2)
-  maxDomains            Int      @map("max_domains")
-  intervalDays          Int      @map("interval_days")
-  checkIntervalMinutes  Int      @default(60) @map("check_interval_minutes")
-  createdAt             DateTime @default(now()) @map("created_at")
-  users                 User[]
-  transactions          Transaction[]
+  id                   String   @id
+  name                 String
+  code                 String?  @unique
+  /// Legacy single price — mirrors price_monthly for paid tiers / 0 for free.
+  price                Decimal  @db.Decimal(12, 2)
+  priceMonthly         Decimal? @map("price_monthly") @db.Decimal(12, 2)
+  priceYearly          Decimal? @map("price_yearly") @db.Decimal(12, 2)
+  maxDomains           Int      @map("max_domains")
+  /// Free trial length, or days for a MONTHLY cycle purchase (30). YEARLY uses 365.
+  intervalDays         Int      @map("interval_days")
+  checkIntervalMinutes Int      @default(60) @map("check_interval_minutes")
+  historyDays          Int      @default(7) @map("history_days")
+  maxTelegramGroups    Int      @default(1) @map("max_telegram_groups")
+  badge                String?
+  sortOrder            Int      @default(100) @map("sort_order")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  users                User[]
+  transactions         Transaction[]
 
   @@map("plans")
 }
@@ -59,16 +74,24 @@ model User {
   email              String             @unique
   password           String
   role               Role               @default(USER)
+  /// Legacy single chat id (first of telegram_chat_ids).
   telegramChatId     String?            @map("telegram_chat_id")
+  /// JSON array of Telegram chat/group IDs (up to plan.max_telegram_groups).
+  telegramChatIds    String?            @map("telegram_chat_ids")
   subscriptionStatus SubscriptionStatus @default(FREE) @map("subscription_status")
+  /// current_plan_id
   planId             String?            @map("plan_id")
+  /// expire_at
   planExpireAt       DateTime?          @map("plan_expire_at")
+  billingCycle       BillingCycle?      @map("billing_cycle")
+  extraDomainSlots   Int                @default(0) @map("extra_domain_slots")
   disabled           Boolean            @default(false)
   failedLoginCount   Int                @default(0) @map("failed_login_count")
   lockedUntil        DateTime?          @map("locked_until")
   createdAt          DateTime           @default(now()) @map("created_at")
   plan               Plan?              @relation(fields: [planId], references: [id])
   transactions       Transaction[]
+  addonPurchases     AddonPurchase[]
   domains            Domain[]
 
   @@map("users")
@@ -93,18 +116,33 @@ model LoginAttempt {
 }
 
 model Transaction {
+  id            String         @id
+  userId        String         @map("user_id")
+  planId        String         @map("plan_id")
+  amount        Decimal        @db.Decimal(12, 2)
+  billingCycle  BillingCycle?  @map("billing_cycle")
+  slipUrl       String?        @map("slip_url")
+  paymentStatus PaymentStatus  @default(PENDING) @map("payment_status")
+  qrRef         String?        @map("qr_ref")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan          Plan           @relation(fields: [planId], references: [id])
+
+  @@map("transactions")
+}
+
+model AddonPurchase {
   id            String        @id
   userId        String        @map("user_id")
-  planId        String        @map("plan_id")
+  slots         Int
   amount        Decimal       @db.Decimal(12, 2)
   slipUrl       String?       @map("slip_url")
   paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
   qrRef         String?       @map("qr_ref")
   createdAt     DateTime      @default(now()) @map("created_at")
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan          Plan          @relation(fields: [planId], references: [id])
 
-  @@map("transactions")
+  @@map("addon_purchases")
 }
 
 model Domain {
@@ -122,15 +160,15 @@ model Domain {
 }
 
 model DomainCheckLog {
-  id        String    @id
-  domainId  String    @map("domain_id")
-  aisStatus IspStatus @default(UNKNOWN) @map("ais_status")
+  id         String    @id
+  domainId   String    @map("domain_id")
+  aisStatus  IspStatus @default(UNKNOWN) @map("ais_status")
   trueStatus IspStatus @default(UNKNOWN) @map("true_status")
   dtacStatus IspStatus @default(UNKNOWN) @map("dtac_status")
-  tbbStatus IspStatus @default(UNKNOWN) @map("tbb_status")
-  ntStatus  IspStatus @default(UNKNOWN) @map("nt_status")
-  checkedAt DateTime  @default(now()) @map("checked_at")
-  domain    Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  tbbStatus  IspStatus @default(UNKNOWN) @map("tbb_status")
+  ntStatus   IspStatus @default(UNKNOWN) @map("nt_status")
+  checkedAt  DateTime  @default(now()) @map("checked_at")
+  domain     Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
 
   @@map("domain_check_logs")
 }

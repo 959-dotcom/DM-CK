@@ -14,8 +14,13 @@ export async function GET(req: NextRequest) {
   try {
     await requireAdmin(req);
     const plans = await sql(
-      `SELECT id, name, price::text, max_domains, interval_days, check_interval_minutes, created_at::text
-       FROM plans ORDER BY price ASC`,
+      `SELECT id, name, code, price::text, price_monthly::text, price_yearly::text,
+              max_domains, interval_days, check_interval_minutes,
+              COALESCE(history_days, 7)::int AS history_days,
+              COALESCE(max_telegram_groups, 1)::int AS max_telegram_groups,
+              badge, COALESCE(sort_order, 100)::int AS sort_order,
+              COALESCE(is_active, TRUE) AS is_active, created_at::text
+       FROM plans ORDER BY sort_order ASC, price ASC`,
     );
     return jsonOk({ plans });
   } catch (err) {
@@ -26,10 +31,18 @@ export async function GET(req: NextRequest) {
 const upsertSchema = z.object({
   id: z.string().min(1).max(64).optional(),
   name: z.string().min(1).max(120),
-  price: z.number().min(0).max(1_000_000),
+  code: z.string().min(1).max(64).optional(),
+  price: z.number().min(0).max(1_000_000).optional(),
+  price_monthly: z.number().min(0).max(1_000_000).optional(),
+  price_yearly: z.number().min(0).max(1_000_000).optional(),
   max_domains: z.number().int().min(0).max(10_000),
-  interval_days: z.number().int().min(1).max(3650),
+  interval_days: z.number().int().min(1).max(3650).optional(),
   check_interval_minutes: z.number().int().min(1).max(1440).optional(),
+  history_days: z.number().int().min(1).max(3650).optional(),
+  max_telegram_groups: z.number().int().min(1).max(99).optional(),
+  badge: z.string().max(32).nullable().optional(),
+  sort_order: z.number().int().min(0).max(10_000).optional(),
+  is_active: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -41,25 +54,55 @@ export async function POST(req: NextRequest) {
     await requireAdmin(req);
     const body = upsertSchema.parse(await req.json());
     const id = body.id || newId("plan");
+    const priceMonthly = body.price_monthly ?? body.price ?? 0;
+    const priceYearly = body.price_yearly ?? priceMonthly * 10;
+    const price = body.price ?? priceMonthly;
+
     await sql(
-      `INSERT INTO plans (id, name, price, max_domains, interval_days, check_interval_minutes)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO plans (
+         id, name, code, price, price_monthly, price_yearly,
+         max_domains, interval_days, check_interval_minutes,
+         history_days, max_telegram_groups, badge, sort_order, is_active
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
+         code = EXCLUDED.code,
          price = EXCLUDED.price,
+         price_monthly = EXCLUDED.price_monthly,
+         price_yearly = EXCLUDED.price_yearly,
          max_domains = EXCLUDED.max_domains,
          interval_days = EXCLUDED.interval_days,
-         check_interval_minutes = EXCLUDED.check_interval_minutes`,
+         check_interval_minutes = EXCLUDED.check_interval_minutes,
+         history_days = EXCLUDED.history_days,
+         max_telegram_groups = EXCLUDED.max_telegram_groups,
+         badge = EXCLUDED.badge,
+         sort_order = EXCLUDED.sort_order,
+         is_active = EXCLUDED.is_active`,
       [
         id,
         body.name,
-        body.price,
+        body.code || id,
+        price,
+        priceMonthly,
+        priceYearly,
         body.max_domains,
-        body.interval_days,
+        body.interval_days ?? 30,
         body.check_interval_minutes ?? 15,
+        body.history_days ?? 7,
+        body.max_telegram_groups ?? 1,
+        body.badge ?? null,
+        body.sort_order ?? 100,
+        body.is_active ?? true,
       ],
     );
-    const plan = await sqlOne(`SELECT id, name, price::text, max_domains, interval_days, check_interval_minutes FROM plans WHERE id = $1`, [id]);
+    const plan = await sqlOne(
+      `SELECT id, name, code, price::text, price_monthly::text, price_yearly::text,
+              max_domains, interval_days, check_interval_minutes,
+              history_days, max_telegram_groups, badge, sort_order, is_active
+       FROM plans WHERE id = $1`,
+      [id],
+    );
     return jsonOk({ plan });
   } catch (err) {
     return handleRouteError(err);

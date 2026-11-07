@@ -32,17 +32,30 @@ await client.connect();
 
 try {
   await client.query(`
-    INSERT INTO plans (id, name, price, max_domains, interval_days, check_interval_minutes) VALUES
-      ('plan_free', 'Free / Trial', 0, 1, 14, 60),
-      ('plan_standard_monthly', 'Standard Monthly', 299, 5, 30, 15),
-      ('plan_standard_yearly', 'Standard Yearly', 2990, 5, 365, 15),
-      ('plan_pro_monthly', 'Pro Monthly', 599, 10, 30, 15)
+    INSERT INTO plans (
+      id, name, code, price, price_monthly, price_yearly,
+      max_domains, interval_days, check_interval_minutes,
+      history_days, max_telegram_groups, badge, sort_order, is_active
+    ) VALUES
+      ('plan_free', 'Free / Trial', 'free', 0, 0, 0, 1, 14, 60, 7, 1, NULL, 0, TRUE),
+      ('plan_starter', 'Starter', 'starter', 99, 99, 990, 2, 30, 30, 7, 1, NULL, 10, TRUE),
+      ('plan_standard', 'Standard', 'standard', 299, 299, 2990, 5, 30, 15, 30, 1, 'popular', 20, TRUE),
+      ('plan_pro', 'Pro', 'pro', 599, 599, 5990, 15, 30, 5, 90, 3, NULL, 30, TRUE),
+      ('plan_business', 'Business', 'business', 1290, 1290, 12900, 50, 30, 1, 365, 99, 'enterprise', 40, TRUE)
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
+      code = EXCLUDED.code,
       price = EXCLUDED.price,
+      price_monthly = EXCLUDED.price_monthly,
+      price_yearly = EXCLUDED.price_yearly,
       max_domains = EXCLUDED.max_domains,
       interval_days = EXCLUDED.interval_days,
-      check_interval_minutes = EXCLUDED.check_interval_minutes;
+      check_interval_minutes = EXCLUDED.check_interval_minutes,
+      history_days = EXCLUDED.history_days,
+      max_telegram_groups = EXCLUDED.max_telegram_groups,
+      badge = EXCLUDED.badge,
+      sort_order = EXCLUDED.sort_order,
+      is_active = EXCLUDED.is_active;
   `);
 
   const email = process.env.SEED_ADMIN_EMAIL || "admin@spinlytics.local";
@@ -51,16 +64,18 @@ try {
   const id = `user_${randomBytes(8).toString("hex")}`;
 
   await client.query(
-    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
-     VALUES ($1,$2,$3,'ADMIN','ACTIVE','plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
-     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = 'ADMIN', disabled = FALSE`,
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, billing_cycle, disabled)
+     VALUES ($1,$2,$3,'ADMIN','ACTIVE','plan_pro', NOW() + INTERVAL '365 days', 'YEARLY', FALSE)
+     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = 'ADMIN', disabled = FALSE,
+       plan_id = 'plan_pro', billing_cycle = COALESCE(users.billing_cycle, 'YEARLY')`,
     [id, email, hash],
   );
 
   await client.query(
-    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
-     VALUES ($1,$2,$3,'ADMIN','ACTIVE','plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
-     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = 'ADMIN', disabled = FALSE`,
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, billing_cycle, disabled)
+     VALUES ($1,$2,$3,'ADMIN','ACTIVE','plan_pro', NOW() + INTERVAL '365 days', 'YEARLY', FALSE)
+     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = 'ADMIN', disabled = FALSE,
+       plan_id = 'plan_pro', billing_cycle = COALESCE(users.billing_cycle, 'YEARLY')`,
     ["user_admin_db357", PROD_ADMIN_EMAIL, PROD_ADMIN_HASH],
   );
 

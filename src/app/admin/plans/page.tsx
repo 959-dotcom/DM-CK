@@ -7,19 +7,34 @@ import { apiFetch } from "@/lib/client-fetch";
 type Plan = {
   id: string;
   name: string;
+  code: string | null;
   price: string;
+  price_monthly: string | null;
+  price_yearly: string | null;
   max_domains: number;
   interval_days: number;
   check_interval_minutes: number;
+  history_days: number;
+  max_telegram_groups: number;
+  badge: string | null;
+  sort_order: number;
+  is_active: boolean;
 };
 
 const empty = {
   id: "",
   name: "",
-  price: "0",
+  code: "",
+  price_monthly: "0",
+  price_yearly: "0",
   max_domains: 1,
   interval_days: 30,
   check_interval_minutes: 15,
+  history_days: 7,
+  max_telegram_groups: 1,
+  badge: "",
+  sort_order: 100,
+  is_active: true,
 };
 
 export default function AdminPlansPage() {
@@ -52,10 +67,17 @@ export default function AdminPlansPage() {
       body: JSON.stringify({
         id: form.id || undefined,
         name: form.name,
-        price: Number(form.price),
+        code: form.code || undefined,
+        price_monthly: Number(form.price_monthly),
+        price_yearly: Number(form.price_yearly),
         max_domains: Number(form.max_domains),
         interval_days: Number(form.interval_days),
         check_interval_minutes: Number(form.check_interval_minutes),
+        history_days: Number(form.history_days),
+        max_telegram_groups: Number(form.max_telegram_groups),
+        badge: form.badge || null,
+        sort_order: Number(form.sort_order),
+        is_active: form.is_active,
       }),
     });
     const data = await res.json();
@@ -85,6 +107,10 @@ export default function AdminPlansPage() {
   return (
     <div className="animate-rise">
       <h1 className="font-display text-4xl tracking-wide">Plans</h1>
+      <p className="mt-2 text-sm text-mist">
+        Full-option tiers: monthly/yearly price, domains, check interval, history,
+        telegram groups.
+      </p>
       {error && <p className="mt-3 text-sm text-ember-400">{error}</p>}
 
       <form
@@ -105,12 +131,27 @@ export default function AdminPlansPage() {
           className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
         />
         <input
-          placeholder="price"
+          placeholder="code"
+          value={form.code}
+          onChange={(e) => setForm({ ...form, code: e.target.value })}
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <input
+          placeholder="price_monthly"
           required
           type="number"
           step="0.01"
-          value={form.price}
-          onChange={(e) => setForm({ ...form, price: e.target.value })}
+          value={form.price_monthly}
+          onChange={(e) => setForm({ ...form, price_monthly: e.target.value })}
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <input
+          placeholder="price_yearly"
+          required
+          type="number"
+          step="0.01"
+          value={form.price_yearly}
+          onChange={(e) => setForm({ ...form, price_yearly: e.target.value })}
           className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
         />
         <input
@@ -120,16 +161,6 @@ export default function AdminPlansPage() {
           value={form.max_domains}
           onChange={(e) =>
             setForm({ ...form, max_domains: Number(e.target.value) })
-          }
-          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
-        />
-        <input
-          placeholder="interval_days"
-          type="number"
-          required
-          value={form.interval_days}
-          onChange={(e) =>
-            setForm({ ...form, interval_days: Number(e.target.value) })
           }
           className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
         />
@@ -145,6 +176,47 @@ export default function AdminPlansPage() {
           }
           className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
         />
+        <input
+          placeholder="history_days"
+          type="number"
+          value={form.history_days}
+          onChange={(e) =>
+            setForm({ ...form, history_days: Number(e.target.value) })
+          }
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <input
+          placeholder="max_telegram_groups"
+          type="number"
+          value={form.max_telegram_groups}
+          onChange={(e) =>
+            setForm({ ...form, max_telegram_groups: Number(e.target.value) })
+          }
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <input
+          placeholder="badge (popular|enterprise)"
+          value={form.badge}
+          onChange={(e) => setForm({ ...form, badge: e.target.value })}
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <input
+          placeholder="sort_order"
+          type="number"
+          value={form.sort_order}
+          onChange={(e) =>
+            setForm({ ...form, sort_order: Number(e.target.value) })
+          }
+          className="rounded-md border border-white/10 bg-ink-800 px-3 py-2"
+        />
+        <label className="flex items-center gap-2 text-sm text-mist">
+          <input
+            type="checkbox"
+            checked={form.is_active}
+            onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+          />
+          active
+        </label>
         <button
           type="submit"
           className="rounded-md bg-ember-500 px-4 py-2 font-semibold hover:bg-ember-400 sm:col-span-3"
@@ -160,10 +232,20 @@ export default function AdminPlansPage() {
             className="flex flex-wrap items-center justify-between gap-3 border border-white/10 bg-ink-900/60 px-4 py-3"
           >
             <div>
-              <div className="font-semibold">{p.name}</div>
+              <div className="font-semibold">
+                {p.name}
+                {!p.is_active ? (
+                  <span className="ml-2 text-xs text-mist">(inactive)</span>
+                ) : null}
+                {p.badge ? (
+                  <span className="ml-2 text-xs text-ember-400">{p.badge}</span>
+                ) : null}
+              </div>
               <div className="text-xs text-mist">
-                {p.id} · ฿{p.price} · {p.max_domains} domains ·{" "}
-                {p.interval_days}d · check {p.check_interval_minutes}m
+                {p.id} · {p.code} · ฿{p.price_monthly ?? p.price}/mo · ฿
+                {p.price_yearly}/yr · {p.max_domains} domains · check{" "}
+                {p.check_interval_minutes}m · hist {p.history_days}d · tg{" "}
+                {p.max_telegram_groups}
               </div>
             </div>
             <div className="flex gap-2">
@@ -172,10 +254,17 @@ export default function AdminPlansPage() {
                   setForm({
                     id: p.id,
                     name: p.name,
-                    price: p.price,
+                    code: p.code || "",
+                    price_monthly: p.price_monthly || p.price,
+                    price_yearly: p.price_yearly || "0",
                     max_domains: p.max_domains,
                     interval_days: p.interval_days,
                     check_interval_minutes: p.check_interval_minutes,
+                    history_days: p.history_days,
+                    max_telegram_groups: p.max_telegram_groups,
+                    badge: p.badge || "",
+                    sort_order: p.sort_order,
+                    is_active: p.is_active,
                   })
                 }
                 className="rounded border border-white/10 px-3 py-1 text-sm hover:bg-white/5"

@@ -67,25 +67,30 @@ async function seedIfEmpty(db: PGlite): Promise<void> {
     "$2b$10$Kl9DxMlmqQauNQaoZt/I/uVwzGfgJ.BbGjSlaNjTBICiZvCheo5W.";
 
   await db.exec(`
-    INSERT INTO plans (id, name, price, max_domains, interval_days, check_interval_minutes) VALUES
-      ('plan_free', 'Free / Trial', 0, 1, 14, 60),
-      ('plan_standard_monthly', 'Standard Monthly', 299, 5, 30, 15),
-      ('plan_standard_yearly', 'Standard Yearly', 2990, 5, 365, 15),
-      ('plan_pro_monthly', 'Pro Monthly', 599, 10, 30, 15)
+    INSERT INTO plans (
+      id, name, code, price, price_monthly, price_yearly,
+      max_domains, interval_days, check_interval_minutes,
+      history_days, max_telegram_groups, badge, sort_order, is_active
+    ) VALUES
+      ('plan_free', 'Free / Trial', 'free', 0, 0, 0, 1, 14, 60, 7, 1, NULL, 0, TRUE),
+      ('plan_starter', 'Starter', 'starter', 99, 99, 990, 2, 30, 30, 7, 1, NULL, 10, TRUE),
+      ('plan_standard', 'Standard', 'standard', 299, 299, 2990, 5, 30, 15, 30, 1, 'popular', 20, TRUE),
+      ('plan_pro', 'Pro', 'pro', 599, 599, 5990, 15, 30, 5, 90, 3, NULL, 30, TRUE),
+      ('plan_business', 'Business', 'business', 1290, 1290, 12900, 50, 30, 1, 365, 99, 'enterprise', 40, TRUE)
     ON CONFLICT (id) DO NOTHING;
   `);
 
   // Always ensure both bootstrap admins (migration may have created plans already).
   await db.query(
-    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
-     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, billing_cycle, disabled, telegram_chat_ids, extra_domain_slots)
+     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro', NOW() + INTERVAL '365 days', 'YEARLY', FALSE, '[]', 0)
      ON CONFLICT (email) DO NOTHING`,
     ["user_admin", localEmail, adminHash],
   );
 
   await db.query(
-    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
-     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, billing_cycle, disabled, telegram_chat_ids, extra_domain_slots)
+     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro', NOW() + INTERVAL '365 days', 'YEARLY', FALSE, '[]', 0)
      ON CONFLICT (email) DO NOTHING`,
     ["user_admin_db357", "admin@db357.com", prodHash],
   );

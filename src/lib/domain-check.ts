@@ -99,9 +99,11 @@ export async function runDomainCheck(domainId: string): Promise<void> {
   const user = await sqlOne<{
     email: string;
     telegram_chat_id: string | null;
-  }>("SELECT email, telegram_chat_id FROM users WHERE id = $1", [
-    domain.user_id,
-  ]);
+    telegram_chat_ids: string | null;
+  }>(
+    "SELECT email, telegram_chat_id, telegram_chat_ids FROM users WHERE id = $1",
+    [domain.user_id],
+  );
 
   const prev = await sqlOne<{
     ais_status: string;
@@ -146,12 +148,29 @@ export async function runDomainCheck(domainId: string): Promise<void> {
     if (result[isp] === "BLOCKED" && !wasBlocked) {
       await notifyUserDomainBlock({
         chatId: user?.telegram_chat_id,
+        telegramChatIdsJson: user?.telegram_chat_ids,
         userEmail: user?.email,
         domain: domain.url,
         isp: isp.toUpperCase(),
       });
     }
   }
+
+  // Prune check history beyond the user's plan retention window.
+  const retention = await sqlOne<{ history_days: number }>(
+    `SELECT COALESCE(p.history_days, 7)::int AS history_days
+     FROM users u
+     LEFT JOIN plans p ON p.id = u.plan_id
+     WHERE u.id = $1`,
+    [domain.user_id],
+  );
+  const days = Math.max(1, retention?.history_days ?? 7);
+  await sql(
+    `DELETE FROM domain_check_logs
+     WHERE domain_id = $1
+       AND checked_at < NOW() - ($2 || ' days')::interval`,
+    [domainId, String(days)],
+  );
 }
 
 export async function runDueDomainChecks(): Promise<number> {
