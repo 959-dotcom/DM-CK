@@ -42,6 +42,8 @@ export async function GET(req: NextRequest) {
         SLIPOK_BRANCH_ID: envPresent("SLIPOK_BRANCH_ID"),
         TELEGRAM_BOT_TOKEN: envPresent("TELEGRAM_BOT_TOKEN"),
         TELEGRAM_ADMIN_CHAT_ID: envPresent("TELEGRAM_ADMIN_CHAT_ID"),
+        TELEGRAM_SLIP_APPROVE_CHAT_ID: envPresent("TELEGRAM_SLIP_APPROVE_CHAT_ID"),
+        TELEGRAM_WEBHOOK_SECRET: envPresent("TELEGRAM_WEBHOOK_SECRET"),
         REDIS_URL: envPresent("REDIS_URL"),
         WORKER_SECRET: envPresent("WORKER_SECRET"),
         CRON_SECRET: envPresent("CRON_SECRET"),

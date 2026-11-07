@@ -3,8 +3,10 @@ import path from "node:path";
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { sql, sqlOne } from "@/lib/db";
+import { absolutePublicUrl } from "@/lib/public-url";
 import { verifySlip } from "@/lib/slipok";
-import { notifyAdminPayment } from "@/lib/telegram";
+import { notifyAdminPayment, getTelegramSlipApproveChatId } from "@/lib/telegram";
+import { requestManualSlipApproval } from "@/lib/telegram-slip-approve";
 import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
 import { assertCsrf } from "@/lib/security/csrf";
 import {
@@ -89,7 +91,45 @@ export async function POST(
     await writeFile(slipPath, buffer);
     const slipUrl = `/uploads/slips/${safeName}`;
 
+    const title = `Extra Domain Slot × ${addon.slots}`;
+
     if (!verify.ok) {
+      const approveChat = getTelegramSlipApproveChatId();
+      if (approveChat) {
+        await sql(
+          `UPDATE addon_purchases SET slip_url = $1 WHERE id = $2 AND payment_status = 'PENDING'`,
+          [slipUrl, id],
+        );
+        const sent = await requestManualSlipApproval({
+          kind: "addon",
+          id,
+          email: user.email,
+          title,
+          amount,
+          slipUrl: absolutePublicUrl(slipUrl),
+          verifyMessage: verify.message,
+        });
+        return withRateLimitHeaders(
+          jsonOk(
+            {
+              pending_manual: true,
+              telegram_sent: sent,
+              addon: {
+                id,
+                payment_status: "PENDING",
+                slip_url: slipUrl,
+                slots: addon.slots,
+              },
+              verify,
+              message:
+                "สลิปถูกส่งให้แอดมินตรวจสอบแล้ว (SlipOK ไม่ผ่าน/ไม่พร้อม)",
+            },
+            { status: 202 },
+          ),
+          rl,
+        );
+      }
+
       await sql(
         `UPDATE addon_purchases SET slip_url = $1, payment_status = 'REJECTED' WHERE id = $2`,
         [slipUrl, id],
@@ -115,10 +155,11 @@ export async function POST(
 
     await notifyAdminPayment({
       email: user.email,
-      planName: `Extra Domain Slot × ${addon.slots}`,
+      planName: title,
       amount,
       transactionId: id,
       mock: verify.mock,
+      via: verify.mock ? "mock" : "live",
     });
 
     return withRateLimitHeaders(

@@ -96,6 +96,8 @@ DATABASE_URL=postgres://... npm run migrate
 | `SLIPOK_API_KEY` (+ optional `SLIPOK_BRANCH_ID`) | Live slip verification |
 | `TELEGRAM_BOT_TOKEN` | Bot for alerts + admin payment notices |
 | `TELEGRAM_ADMIN_CHAT_ID` | Admin group for payment notifications |
+| `TELEGRAM_SLIP_APPROVE_CHAT_ID` | Backup group for manual slip Approve/Reject |
+| `TELEGRAM_WEBHOOK_SECRET` | Optional; Telegram webhook secret (else `WORKER_SECRET`) |
 | `REDIS_URL` | Optional; enables BullMQ |
 | `WORKER_SECRET` | Protect `/api/worker/tick` + admin tick |
 | `CRON_SECRET` | Vercel Cron bearer for `/api/worker/tick` |

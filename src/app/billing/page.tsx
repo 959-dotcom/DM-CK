@@ -165,6 +165,14 @@ export default function BillingPage() {
       const res = await apiFetch(path, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verify failed");
+      if (data.pending_manual) {
+        setMessage(
+          data.message ||
+            "สลิปถูกส่งให้แอดมินตรวจสอบแล้ว — จะแจ้งเมื่ออนุมัติ",
+        );
+        setPending(null);
+        return;
+      }
       setMessage(
         data.verify?.mock
           ? "ชำระเงินสำเร็จ (mock verify)"
