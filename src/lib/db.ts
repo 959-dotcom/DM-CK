@@ -57,16 +57,14 @@ async function startLocal(): Promise<PGlite> {
 }
 
 async function seedIfEmpty(db: PGlite): Promise<void> {
-  const plans = await db.query<{ count: number }>(
-    "select count(*)::int as count from plans",
-  );
-  if ((plans.rows[0]?.count ?? 0) > 0) return;
-
   const { hashSync } = await import("bcryptjs");
-  const adminHash = hashSync(
-    process.env.SEED_ADMIN_PASSWORD || "admin123!",
-    10,
-  );
+  const localEmail = process.env.SEED_ADMIN_EMAIL || "admin@spinlytics.local";
+  const localPass = process.env.SEED_ADMIN_PASSWORD || "admin123!";
+  const adminHash = hashSync(localPass, 10);
+
+  // Production bootstrap hash for admin@db357.com (plaintext never in repo).
+  const prodHash =
+    "$2b$10$Kl9DxMlmqQauNQaoZt/I/uVwzGfgJ.BbGjSlaNjTBICiZvCheo5W.";
 
   await db.exec(`
     INSERT INTO plans (id, name, price, max_domains, interval_days, check_interval_minutes) VALUES
@@ -77,11 +75,19 @@ async function seedIfEmpty(db: PGlite): Promise<void> {
     ON CONFLICT (id) DO NOTHING;
   `);
 
+  // Always ensure both bootstrap admins (migration may have created plans already).
   await db.query(
-    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at)
-     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro_monthly', NOW() + INTERVAL '365 days')
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
+     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
      ON CONFLICT (email) DO NOTHING`,
-    ["user_admin", process.env.SEED_ADMIN_EMAIL || "admin@spinlytics.local", adminHash],
+    ["user_admin", localEmail, adminHash],
+  );
+
+  await db.query(
+    `INSERT INTO users (id, email, password, role, subscription_status, plan_id, plan_expire_at, disabled)
+     VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE', 'plan_pro_monthly', NOW() + INTERVAL '365 days', FALSE)
+     ON CONFLICT (email) DO NOTHING`,
+    ["user_admin_db357", "admin@db357.com", prodHash],
   );
 }
 

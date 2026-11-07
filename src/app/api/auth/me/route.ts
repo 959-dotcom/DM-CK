@@ -1,12 +1,26 @@
 import { NextRequest } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
-import { sqlOne } from "@/lib/db";
+import { z } from "zod";
+import { cookies } from "next/headers";
+import { getCurrentUser, maybeRefreshSession } from "@/lib/auth";
+import { sql, sqlOne } from "@/lib/db";
 import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { assertCsrf, CSRF_COOKIE, setCsrfCookie } from "@/lib/security/csrf";
+
+const patchSchema = z.object({
+  telegram_chat_id: z.string().max(64).nullable().optional(),
+});
 
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
     if (!user) return jsonError("Unauthorized", 401);
+
+    const jar = await cookies();
+    if (!jar.get(CSRF_COOKIE)?.value) {
+      await setCsrfCookie();
+    }
+
+    const refreshed = await maybeRefreshSession(req);
 
     const plan = user.plan_id
       ? await sqlOne<{
@@ -32,6 +46,7 @@ export async function GET(req: NextRequest) {
       user,
       plan,
       domain_count: domainCount?.count ?? 0,
+      refreshed: Boolean(refreshed),
     });
   } catch (err) {
     return handleRouteError(err);
@@ -40,12 +55,11 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    assertCsrf(req);
     const user = await getCurrentUser(req);
     if (!user) return jsonError("Unauthorized", 401);
-    const body = (await req.json()) as { telegram_chat_id?: string };
-    await (
-      await import("@/lib/db")
-    ).sql(`UPDATE users SET telegram_chat_id = $1 WHERE id = $2`, [
+    const body = patchSchema.parse(await req.json());
+    await sql(`UPDATE users SET telegram_chat_id = $1 WHERE id = $2`, [
       body.telegram_chat_id || null,
       user.id,
     ]);

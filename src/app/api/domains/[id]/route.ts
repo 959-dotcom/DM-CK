@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { sql, sqlOne } from "@/lib/db";
 import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { assertCsrf } from "@/lib/security/csrf";
 
 const patchSchema = z.object({
   monitoring_enabled: z.boolean().optional(),
@@ -21,6 +22,7 @@ export async function PATCH(
   ctx: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertCsrf(req);
     const user = await requireUser(req);
     const { id } = await ctx.params;
     const domain = await ownedDomain(user.id, id);
@@ -55,6 +57,7 @@ export async function DELETE(
   ctx: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertCsrf(req);
     const user = await requireUser(req);
     const { id } = await ctx.params;
     const domain = await ownedDomain(user.id, id);

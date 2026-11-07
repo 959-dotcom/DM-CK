@@ -32,7 +32,17 @@ export default function LoginPage() {
           /* ignore */
         }
       }
-      router.replace("/dashboard");
+      const next =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("next")
+          : null;
+      const dest =
+        next && next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : data.user?.role === "ADMIN"
+            ? "/admin"
+            : "/dashboard";
+      router.replace(dest);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

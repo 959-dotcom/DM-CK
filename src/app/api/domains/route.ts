@@ -3,7 +3,13 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { newId, sql, sqlOne } from "@/lib/db";
 import { runDomainCheck } from "@/lib/domain-check";
-import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
+import { assertCsrf } from "@/lib/security/csrf";
+import {
+  clientIp,
+  RATE_PRESETS,
+  rateLimit,
+} from "@/lib/security/rate-limit";
 
 const createSchema = z.object({
   url: z.string().min(3).max(500),
@@ -47,6 +53,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    assertCsrf(req);
+    const ip = clientIp(req);
+    const rl = rateLimit({ key: `domains:${ip}`, ...RATE_PRESETS.api });
+    if (!rl.ok) {
+      return withRateLimitHeaders(
+        jsonError("Too many requests", 429, { retryAfterSec: rl.retryAfterSec }),
+        rl,
+      );
+    }
+
     const user = await requireUser(req);
     const body = createSchema.parse(await req.json());
 
@@ -79,12 +95,16 @@ export async function POST(req: NextRequest) {
       [id, user.id, url],
     );
 
-    // Fire-and-forget first check
     runDomainCheck(id).catch((err) =>
       console.error("[domains] initial check failed", err),
     );
 
-    return jsonOk({ domain: { id, url, status: "ACTIVE", monitoring_enabled: true } });
+    return withRateLimitHeaders(
+      jsonOk({
+        domain: { id, url, status: "ACTIVE", monitoring_enabled: true },
+      }),
+      rl,
+    );
   } catch (err) {
     return handleRouteError(err);
   }

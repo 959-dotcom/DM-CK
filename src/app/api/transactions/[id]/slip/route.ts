@@ -5,15 +5,40 @@ import { requireUser } from "@/lib/auth";
 import { sql, sqlOne } from "@/lib/db";
 import { verifySlip } from "@/lib/slipok";
 import { notifyAdminPayment } from "@/lib/telegram";
-import { handleRouteError, jsonError, jsonOk } from "@/lib/api";
+import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
+import { assertCsrf } from "@/lib/security/csrf";
+import {
+  assertSafeUploadDir,
+  validateSlipUpload,
+} from "@/lib/security/upload";
+import {
+  clientIp,
+  RATE_PRESETS,
+  rateLimit,
+} from "@/lib/security/rate-limit";
 
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertCsrf(req);
+    const ip = clientIp(req);
+    const rl = rateLimit({ key: `slip:${ip}`, ...RATE_PRESETS.slip });
+    if (!rl.ok) {
+      return withRateLimitHeaders(
+        jsonError("Too many slip uploads", 429, {
+          retryAfterSec: rl.retryAfterSec,
+        }),
+        rl,
+      );
+    }
+
     const user = await requireUser(req);
     const { id } = await ctx.params;
+    if (!/^[a-zA-Z0-9_:-]+$/.test(id)) {
+      return jsonError("Invalid transaction id", 400);
+    }
 
     const txn = await sqlOne<{
       id: string;
@@ -40,17 +65,27 @@ export async function POST(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const validated = validateSlipUpload({
+      buffer,
+      originalName: file.name || "slip.jpg",
+      declaredType: file.type,
+    });
+    if (!validated.ok) {
+      return jsonError(validated.error, 400);
+    }
+
     const amount = Number(txn.amount);
     const verify = await verifySlip({
       amount,
       slipBuffer: buffer,
-      filename: file.name || "slip.jpg",
+      filename: `slip${validated.ext}`,
     });
 
     const uploadDir = path.join(process.cwd(), "public", "uploads", "slips");
     await mkdir(uploadDir, { recursive: true });
-    const safeName = `${id}_${Date.now()}${path.extname(file.name) || ".jpg"}`;
+    const safeName = `${id}_${validated.safeFilename}`;
     const slipPath = path.join(uploadDir, safeName);
+    assertSafeUploadDir(uploadDir, slipPath);
     await writeFile(slipPath, buffer);
     const slipUrl = `/uploads/slips/${safeName}`;
 
@@ -92,19 +127,22 @@ export async function POST(
       mock: verify.mock,
     });
 
-    return jsonOk({
-      transaction: {
-        id,
-        payment_status: "APPROVED",
-        slip_url: slipUrl,
-      },
-      verify,
-      subscription: {
-        status: "ACTIVE",
-        plan_id: txn.plan_id,
-        plan_expire_at: expireAt.toISOString(),
-      },
-    });
+    return withRateLimitHeaders(
+      jsonOk({
+        transaction: {
+          id,
+          payment_status: "APPROVED",
+          slip_url: slipUrl,
+        },
+        verify,
+        subscription: {
+          status: "ACTIVE",
+          plan_id: txn.plan_id,
+          plan_expire_at: expireAt.toISOString(),
+        },
+      }),
+      rl,
+    );
   } catch (err) {
     return handleRouteError(err);
   }

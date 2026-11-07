@@ -28,10 +28,12 @@ Open http://localhost:3000
 
 Prefer `build` + `start` for demos on this VM (dev HMR websocket can flake).
 
-Default seeded admin (PGlite auto-seed on first query):
+Default seeded admins (PGlite auto-seed / `npm run seed`):
 
-- Email: `admin@spinlytics.local`
-- Password: `admin123!`
+- Local: `admin@spinlytics.local` / `admin123!`
+- Production bootstrap: `admin@db357.com` (password is **not** stored in the repo — see ops handoff / PR description)
+
+Admin control panel: `/admin` (ADMIN role only).
 
 Or register a new account (starts on Free/Trial — 1 domain, hourly checks).
 
@@ -76,12 +78,15 @@ DATABASE_URL=postgres://... npm run migrate
 | Var | Why |
 |-----|-----|
 | `JWT_SECRET` | Sign auth cookies |
+| `JWT_ACCESS_TTL` / `JWT_ACCESS_MAX_AGE_SEC` | Short-lived session (default 2h) |
 | `PROMPTPAY_ID` | Merchant ID (defaults to `0846301733`) |
 | `SLIPOK_API_KEY` (+ optional `SLIPOK_BRANCH_ID`) | Live slip verification |
 | `TELEGRAM_BOT_TOKEN` | Bot for alerts + admin payment notices |
 | `TELEGRAM_ADMIN_CHAT_ID` | Admin group for payment notifications |
 | `REDIS_URL` | Optional; enables BullMQ |
-| `WORKER_SECRET` | Protect `/api/worker/tick` |
+| `WORKER_SECRET` | Protect `/api/worker/tick` + admin tick |
+| `CRON_SECRET` | Vercel Cron bearer for `/api/worker/tick` |
+| `MAX_SLIP_BYTES` / `LOGIN_MAX_*` | Upload size + brute-force lockout |
 
 `DATABASE_URL` is injected by Cursor publish-app when the app declares Postgres — do not hardcode it.
 
