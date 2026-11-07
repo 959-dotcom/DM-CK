@@ -5,8 +5,10 @@ import { requireUser } from "@/lib/auth";
 import { BillingCycle } from "@/lib/constants";
 import { sql, sqlOne } from "@/lib/db";
 import { expireAtForCycle } from "@/lib/plans";
+import { absolutePublicUrl } from "@/lib/public-url";
 import { verifySlip } from "@/lib/slipok";
-import { notifyAdminPayment } from "@/lib/telegram";
+import { notifyAdminPayment, getTelegramSlipApproveChatId } from "@/lib/telegram";
+import { requestManualSlipApproval } from "@/lib/telegram-slip-approve";
 import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
 import { assertCsrf } from "@/lib/security/csrf";
 import {
@@ -92,7 +94,52 @@ export async function POST(
     await writeFile(slipPath, buffer);
     const slipUrl = `/uploads/slips/${safeName}`;
 
+    const plan = await sqlOne<{
+      name: string;
+      interval_days: number;
+    }>(`SELECT name, interval_days FROM plans WHERE id = $1`, [txn.plan_id]);
+
+    const cycle: BillingCycle =
+      txn.billing_cycle === "YEARLY" ? "YEARLY" : "MONTHLY";
+    const planLabel = `${plan?.name || txn.plan_id} (${cycle})`;
+
     if (!verify.ok) {
+      // Backup path: keep PENDING + ask Telegram approve group when configured.
+      const approveChat = getTelegramSlipApproveChatId();
+      if (approveChat) {
+        await sql(
+          `UPDATE transactions SET slip_url = $1 WHERE id = $2 AND payment_status = 'PENDING'`,
+          [slipUrl, id],
+        );
+        const sent = await requestManualSlipApproval({
+          kind: "plan",
+          id,
+          email: user.email,
+          title: planLabel,
+          amount,
+          slipUrl: absolutePublicUrl(slipUrl),
+          verifyMessage: verify.message,
+        });
+        return withRateLimitHeaders(
+          jsonOk(
+            {
+              pending_manual: true,
+              telegram_sent: sent,
+              transaction: {
+                id,
+                payment_status: "PENDING",
+                slip_url: slipUrl,
+              },
+              verify,
+              message:
+                "สลิปถูกส่งให้แอดมินตรวจสอบแล้ว (SlipOK ไม่ผ่าน/ไม่พร้อม)",
+            },
+            { status: 202 },
+          ),
+          rl,
+        );
+      }
+
       await sql(
         `UPDATE transactions SET slip_url = $1, payment_status = 'REJECTED' WHERE id = $2`,
         [slipUrl, id],
@@ -100,12 +147,6 @@ export async function POST(
       return jsonError(verify.message || "Slip verification failed", 400);
     }
 
-    const plan = await sqlOne<{
-      name: string;
-      interval_days: number;
-    }>(`SELECT name, interval_days FROM plans WHERE id = $1`, [txn.plan_id]);
-
-    const cycle: BillingCycle = txn.billing_cycle === "YEARLY" ? "YEARLY" : "MONTHLY";
     const expireAt = expireAtForCycle(cycle);
 
     await sql(
@@ -124,10 +165,11 @@ export async function POST(
 
     await notifyAdminPayment({
       email: user.email,
-      planName: `${plan?.name || txn.plan_id} (${cycle})`,
+      planName: planLabel,
       amount,
       transactionId: id,
       mock: verify.mock,
+      via: verify.mock ? "mock" : "live",
     });
 
     return withRateLimitHeaders(
