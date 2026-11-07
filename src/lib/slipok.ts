@@ -1,6 +1,12 @@
 /**
- * SlipOK (or equivalent) slip verification.
- * When SLIPOK_API_KEY is absent, mock mode accepts demo uploads so billing flow is demoable.
+ * SlipOK slip verification.
+ * Docs: https://docs.google.com/document/d/1l2ot68Pw3CL7JBeYfUIHLzeBC5F7jm2wzBfm84kwxBA
+ *
+ * Live: POST https://api.slipok.com/api/line/apikey/<BRANCH_ID>
+ *   Header: x-authorization: <API_KEY>
+ *   multipart/form-data: files (image), amount (number), optional log=true
+ *
+ * When SLIPOK_API_KEY is absent → mock mode (demoable without credentials).
  */
 
 export type SlipVerifyResult = {
@@ -12,16 +18,35 @@ export type SlipVerifyResult = {
   raw?: unknown;
 };
 
+const DEFAULT_BRANCH_ID = "80454";
+const API_BASE = "https://api.slipok.com/api/line/apikey";
+
+export function getSlipOkConfig(): {
+  apiKey: string | null;
+  branchId: string;
+  url: string;
+  live: boolean;
+} {
+  const apiKey = process.env.SLIPOK_API_KEY?.trim() || null;
+  const branchId =
+    process.env.SLIPOK_BRANCH_ID?.trim() || DEFAULT_BRANCH_ID;
+  return {
+    apiKey,
+    branchId,
+    url: `${API_BASE}/${branchId}`,
+    live: Boolean(apiKey),
+  };
+}
+
 export async function verifySlip(opts: {
   amount: number;
   slipBuffer: Buffer;
   filename: string;
 }): Promise<SlipVerifyResult> {
-  const apiKey = process.env.SLIPOK_API_KEY?.trim();
-  const branchId = process.env.SLIPOK_BRANCH_ID?.trim();
+  const { apiKey, url, live } = getSlipOkConfig();
 
-  if (!apiKey) {
-    // Mock verify: accept any image when keys are missing.
+  if (!live || !apiKey) {
+    // Mock verify only when key absent.
     if (opts.slipBuffer.length < 100) {
       return {
         ok: false,
@@ -41,47 +66,62 @@ export async function verifySlip(opts: {
 
   try {
     const form = new FormData();
+    // SlipOK docs: field name is `files` (multipart image)
     form.append(
-      "file",
+      "files",
       new Blob([new Uint8Array(opts.slipBuffer)]),
       opts.filename || "slip.jpg",
     );
     form.append("amount", String(opts.amount));
-
-    const url = branchId
-      ? `https://api.slipok.com/api/line/apikey/${branchId}`
-      : "https://api.slipok.com/api/line/apikey";
+    // Ask SlipOK to store + dedupe slips against linked receiving account
+    form.append("log", "true");
 
     const res = await fetch(url, {
       method: "POST",
       headers: { "x-authorization": apiKey },
       body: form,
     });
-    const raw = await res.json().catch(() => ({}));
+    const raw = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      code?: number | string;
+      message?: string;
+      data?: {
+        amount?: number;
+        paidLocalAmount?: number;
+        transFeeAmount?: number;
+        transDate?: string;
+        transTime?: string;
+      };
+    };
+
     if (!res.ok) {
       return {
         ok: false,
         mock: false,
-        message: (raw as { message?: string })?.message || "Slip verify failed",
+        message: raw.message || `SlipOK HTTP ${res.status}`,
         raw,
       };
     }
-    const data = raw as {
-      success?: boolean;
-      data?: { amount?: number; transDate?: string };
-      message?: string;
-    };
-    const paidAmount = Number(data.data?.amount ?? 0);
+
+    const paidAmount = Number(
+      raw.data?.amount ?? raw.data?.paidLocalAmount ?? 0,
+    );
     const amountOk =
       !paidAmount || Math.abs(paidAmount - opts.amount) < 0.01;
+    const ok = Boolean(raw.success) && amountOk;
+
     return {
-      ok: Boolean(data.success) && amountOk,
+      ok,
       mock: false,
       amount: paidAmount || opts.amount,
-      paidAt: data.data?.transDate,
-      message: amountOk
-        ? data.message || "Slip verified"
-        : `Amount mismatch: expected ${opts.amount}, got ${paidAmount}`,
+      paidAt: raw.data?.transDate
+        ? `${raw.data.transDate}${raw.data.transTime ? ` ${raw.data.transTime}` : ""}`
+        : undefined,
+      message: !ok
+        ? amountOk
+          ? raw.message || "Slip verification failed"
+          : `Amount mismatch: expected ${opts.amount}, got ${paidAmount}`
+        : raw.message || "Slip verified",
       raw,
     };
   } catch (err) {
