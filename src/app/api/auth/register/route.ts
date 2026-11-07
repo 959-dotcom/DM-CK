@@ -47,15 +47,18 @@ export async function POST(req: Request) {
     const password = await hashPassword(body.password);
     const trialExpire = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
+    const tg = body.telegram_chat_id?.trim() || null;
     await sql(
       `INSERT INTO users
-        (id, email, password, role, telegram_chat_id, subscription_status, plan_id, plan_expire_at, disabled)
-       VALUES ($1,$2,$3,'USER',$4,'TRIAL','plan_free',$5,FALSE)`,
+        (id, email, password, role, telegram_chat_id, telegram_chat_ids,
+         subscription_status, plan_id, plan_expire_at, extra_domain_slots, disabled)
+       VALUES ($1,$2,$3,'USER',$4,$5,'TRIAL','plan_free',$6,0,FALSE)`,
       [
         id,
         body.email.toLowerCase(),
         password,
-        body.telegram_chat_id || null,
+        tg,
+        tg ? JSON.stringify([tg]) : "[]",
         trialExpire.toISOString(),
       ],
     );

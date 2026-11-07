@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
     const users = q
       ? await sql(
           `SELECT id, email, role, subscription_status, plan_id,
-                  plan_expire_at::text, telegram_chat_id,
+                  plan_expire_at::text, billing_cycle,
+                  COALESCE(extra_domain_slots, 0)::int AS extra_domain_slots,
+                  telegram_chat_id, telegram_chat_ids,
                   COALESCE(disabled, FALSE) AS disabled,
                   created_at::text
            FROM users
@@ -36,7 +38,9 @@ export async function GET(req: NextRequest) {
         )
       : await sql(
           `SELECT id, email, role, subscription_status, plan_id,
-                  plan_expire_at::text, telegram_chat_id,
+                  plan_expire_at::text, billing_cycle,
+                  COALESCE(extra_domain_slots, 0)::int AS extra_domain_slots,
+                  telegram_chat_id, telegram_chat_ids,
                   COALESCE(disabled, FALSE) AS disabled,
                   created_at::text
            FROM users
@@ -57,6 +61,8 @@ const patchSchema = z.object({
     .optional(),
   plan_id: z.string().nullable().optional(),
   plan_expire_at: z.string().nullable().optional(),
+  billing_cycle: z.enum(["MONTHLY", "YEARLY"]).nullable().optional(),
+  extra_domain_slots: z.number().int().min(0).max(10_000).optional(),
   telegram_chat_id: z.string().max(64).nullable().optional(),
   disabled: z.boolean().optional(),
 });
@@ -84,6 +90,13 @@ export async function PATCH(req: NextRequest) {
       return jsonError("Cannot disable your own account", 400);
     }
 
+    const tgIdsJson =
+      body.telegram_chat_id === undefined
+        ? null
+        : body.telegram_chat_id
+          ? JSON.stringify([body.telegram_chat_id])
+          : "[]";
+
     await sql(
       `UPDATE users SET
          role = COALESCE($2, role),
@@ -91,7 +104,10 @@ export async function PATCH(req: NextRequest) {
          plan_id = CASE WHEN $4::boolean THEN $5 ELSE plan_id END,
          plan_expire_at = CASE WHEN $6::boolean THEN $7::timestamptz ELSE plan_expire_at END,
          telegram_chat_id = CASE WHEN $8::boolean THEN $9 ELSE telegram_chat_id END,
-         disabled = COALESCE($10, disabled)
+         telegram_chat_ids = CASE WHEN $8::boolean THEN $10 ELSE telegram_chat_ids END,
+         billing_cycle = CASE WHEN $11::boolean THEN $12 ELSE billing_cycle END,
+         extra_domain_slots = COALESCE($13, extra_domain_slots),
+         disabled = COALESCE($14, disabled)
        WHERE id = $1`,
       [
         body.id,
@@ -103,13 +119,19 @@ export async function PATCH(req: NextRequest) {
         body.plan_expire_at,
         body.telegram_chat_id !== undefined,
         body.telegram_chat_id ?? null,
+        tgIdsJson,
+        body.billing_cycle !== undefined,
+        body.billing_cycle ?? null,
+        body.extra_domain_slots ?? null,
         body.disabled ?? null,
       ],
     );
 
     const user = await sqlOne(
       `SELECT id, email, role, subscription_status, plan_id,
-              plan_expire_at::text, telegram_chat_id,
+              plan_expire_at::text, billing_cycle,
+              COALESCE(extra_domain_slots, 0)::int AS extra_domain_slots,
+              telegram_chat_id, telegram_chat_ids,
               COALESCE(disabled, FALSE) AS disabled
        FROM users WHERE id = $1`,
       [body.id],

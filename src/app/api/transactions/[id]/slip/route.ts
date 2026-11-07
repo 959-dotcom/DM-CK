@@ -2,7 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
+import { BillingCycle } from "@/lib/constants";
 import { sql, sqlOne } from "@/lib/db";
+import { expireAtForCycle } from "@/lib/plans";
 import { verifySlip } from "@/lib/slipok";
 import { notifyAdminPayment } from "@/lib/telegram";
 import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
@@ -46,8 +48,9 @@ export async function POST(
       plan_id: string;
       amount: string;
       payment_status: string;
+      billing_cycle: BillingCycle | null;
     }>(
-      `SELECT id, user_id, plan_id, amount::text, payment_status
+      `SELECT id, user_id, plan_id, amount::text, payment_status, billing_cycle
        FROM transactions WHERE id = $1`,
       [id],
     );
@@ -102,9 +105,8 @@ export async function POST(
       interval_days: number;
     }>(`SELECT name, interval_days FROM plans WHERE id = $1`, [txn.plan_id]);
 
-    const expireAt = new Date(
-      Date.now() + (plan?.interval_days || 30) * 24 * 60 * 60 * 1000,
-    );
+    const cycle: BillingCycle = txn.billing_cycle === "YEARLY" ? "YEARLY" : "MONTHLY";
+    const expireAt = expireAtForCycle(cycle);
 
     await sql(
       `UPDATE transactions SET slip_url = $1, payment_status = 'APPROVED' WHERE id = $2`,
@@ -114,14 +116,15 @@ export async function POST(
       `UPDATE users
        SET subscription_status = 'ACTIVE',
            plan_id = $1,
-           plan_expire_at = $2
-       WHERE id = $3`,
-      [txn.plan_id, expireAt.toISOString(), user.id],
+           plan_expire_at = $2,
+           billing_cycle = $3
+       WHERE id = $4`,
+      [txn.plan_id, expireAt.toISOString(), cycle, user.id],
     );
 
     await notifyAdminPayment({
       email: user.email,
-      planName: plan?.name || txn.plan_id,
+      planName: `${plan?.name || txn.plan_id} (${cycle})`,
       amount,
       transactionId: id,
       mock: verify.mock,
@@ -138,6 +141,7 @@ export async function POST(
         subscription: {
           status: "ACTIVE",
           plan_id: txn.plan_id,
+          billing_cycle: cycle,
           plan_expire_at: expireAt.toISOString(),
         },
       }),

@@ -17,7 +17,10 @@ export type SessionUser = {
   subscription_status: string;
   plan_id: string | null;
   plan_expire_at: string | null;
+  billing_cycle: "MONTHLY" | "YEARLY" | null;
+  extra_domain_slots: number;
   telegram_chat_id: string | null;
+  telegram_chat_ids: string | null;
   disabled: boolean;
 };
 
@@ -111,7 +114,9 @@ export async function getCurrentUser(
 
   const user = await sqlOne<SessionUser>(
     `SELECT id, email, role, subscription_status, plan_id,
-            plan_expire_at::text, telegram_chat_id,
+            plan_expire_at::text, billing_cycle,
+            COALESCE(extra_domain_slots, 0)::int AS extra_domain_slots,
+            telegram_chat_id, telegram_chat_ids,
             COALESCE(disabled, FALSE) AS disabled
      FROM users WHERE id = $1`,
     [payload.sub],

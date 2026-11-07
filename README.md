@@ -37,6 +37,19 @@ Admin control panel: `/admin` (ADMIN role only).
 
 Or register a new account (starts on Free/Trial — 1 domain, hourly checks).
 
+### Billing plans
+
+Paid tiers (Monthly / Yearly — ประหยัด 2 เดือน) on `/billing`:
+
+| Plan | Monthly | Yearly | Domains | Interval | History | Telegram |
+|------|---------|--------|---------|----------|---------|----------|
+| Starter | ฿99 | ฿990 | 2 | 30m | 7d | 1 |
+| Standard (Popular) | ฿299 | ฿2,990 | 5 | 15m | 30d | 1 |
+| Pro | ฿599 | ฿5,990 | 15 | 5m | 90d | 3 |
+| Business (Enterprise) | ฿1,290 | ฿12,900 | 50 | 1m | 365d | 99 |
+
+Add-on: Extra Domain Slot ฿50/domain/month. Domain add is blocked when over `max_domains + extra_domain_slots`.
+
 ### Worker
 
 Domain checks also run from the Next process (in-process fallback) and via:

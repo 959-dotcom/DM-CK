@@ -2,6 +2,8 @@
  * Telegram Bot API helpers. No-ops with a console note when tokens are missing.
  */
 
+import { parseTelegramChatIds } from "./constants";
+
 async function sendMessage(chatId: string, text: string): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token || !chatId) {
@@ -26,6 +28,13 @@ async function sendMessage(chatId: string, text: string): Promise<boolean> {
   } catch (err) {
     console.error("[telegram] send failed", err);
     return false;
+  }
+}
+
+async function sendToMany(chatIds: string[], text: string): Promise<void> {
+  const unique = [...new Set(chatIds.map((c) => c.trim()).filter(Boolean))];
+  for (const chatId of unique) {
+    await sendMessage(chatId, text);
   }
 }
 
@@ -56,6 +65,7 @@ export async function notifyAdminPayment(opts: {
 
 export async function notifyUserPaymentDecision(opts: {
   chatId?: string | null;
+  chatIds?: string[] | null;
   email: string;
   planName: string;
   amount: number;
@@ -74,18 +84,22 @@ export async function notifyUserPaymentDecision(opts: {
     .filter(Boolean)
     .join("\n");
 
-  if (opts.chatId) {
-    await sendMessage(opts.chatId, text);
-  }
+  const ids = [
+    ...(opts.chatIds || []),
+    ...(opts.chatId ? [opts.chatId] : []),
+  ];
+  await sendToMany(ids, text);
 
   const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID?.trim();
-  if (adminChat && adminChat !== opts.chatId) {
+  if (adminChat && !ids.includes(adminChat)) {
     await sendMessage(adminChat, text);
   }
 }
 
 export async function notifyUserDomainBlock(opts: {
   chatId?: string | null;
+  chatIds?: string[] | null;
+  telegramChatIdsJson?: string | null;
   domain: string;
   isp: string;
   userEmail?: string | null;
@@ -100,14 +114,15 @@ export async function notifyUserDomainBlock(opts: {
     .filter(Boolean)
     .join("\n");
 
-  // User personal alert (when they set telegram_chat_id)
-  if (opts.chatId) {
-    await sendMessage(opts.chatId, text);
-  }
+  const ids = [
+    ...parseTelegramChatIds(opts.telegramChatIdsJson, opts.chatId),
+    ...(opts.chatIds || []),
+  ];
+  await sendToMany(ids, text);
 
   // Always CC admin group when configured
   const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID?.trim();
-  if (adminChat && adminChat !== opts.chatId) {
+  if (adminChat && !ids.includes(adminChat)) {
     await sendMessage(adminChat, text);
   }
 }

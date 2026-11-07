@@ -26,10 +26,23 @@ type Me = {
     role?: string;
     subscription_status: string;
     plan_expire_at: string | null;
+    billing_cycle?: string | null;
     telegram_chat_id: string | null;
+    telegram_chat_ids?: string[];
   };
-  plan: { name: string; max_domains: number; check_interval_minutes: number } | null;
+  plan: {
+    name: string;
+    max_domains: number;
+    check_interval_minutes: number;
+    max_telegram_groups?: number;
+  } | null;
   domain_count: number;
+  domain_quota?: {
+    max_domains: number;
+    extra_domain_slots: number;
+    total_slots: number;
+    used: number;
+  };
 };
 
 const ISPS = [
@@ -51,6 +64,7 @@ export default function DashboardPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [domains, setDomains] = useState<DomainRow[]>([]);
   const [url, setUrl] = useState("");
+  const [telegramInput, setTelegramInput] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -63,7 +77,10 @@ export default function DashboardPage() {
       router.push("/login");
       return;
     }
-    setMe(await meRes.json());
+    const meJson = await meRes.json();
+    setMe(meJson);
+    const ids: string[] = meJson.user?.telegram_chat_ids || [];
+    setTelegramInput(ids.join(", "));
     const d = await domRes.json();
     setDomains(d.domains || []);
   }, [router]);
@@ -119,10 +136,40 @@ export default function DashboardPage() {
     setBusy(null);
   }
 
+  async function saveTelegram(e: FormEvent) {
+    e.preventDefault();
+    setBusy("tg");
+    setError("");
+    try {
+      const ids = telegramInput
+        .split(/[,\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const res = await apiFetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_chat_ids: ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function logout() {
     await apiFetch("/api/auth/logout", { method: "POST" });
     router.push("/");
   }
+
+  const quotaLabel = me?.domain_quota
+    ? `${me.domain_quota.used}/${me.domain_quota.total_slots}`
+    : me?.plan
+      ? `${me.domain_count}/${me.plan.max_domains}`
+      : null;
 
   return (
     <main className="min-h-screen bg-ink-950 text-white">
@@ -135,10 +182,12 @@ export default function DashboardPage() {
               Spin<span className="text-ember-500">lytics</span>
             </p>
             <p className="mt-1 text-mist">
-              {me?.user.email} · {me?.plan?.name || "Free"} ·{" "}
+              {me?.user.email} · {me?.plan?.name || "Free"}
+              {me?.user.billing_cycle ? ` (${me.user.billing_cycle})` : ""} ·{" "}
               {me?.user.subscription_status}
-              {me?.plan
-                ? ` · โควต้า ${me.domain_count}/${me.plan.max_domains}`
+              {quotaLabel ? ` · โควต้า ${quotaLabel}` : null}
+              {me?.domain_quota?.extra_domain_slots
+                ? ` (+${me.domain_quota.extra_domain_slots} extra)`
                 : null}
             </p>
           </div>
@@ -165,6 +214,31 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
+
+        <form
+          onSubmit={saveTelegram}
+          className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end"
+        >
+          <label className="flex-1 text-sm text-mist">
+            Telegram chat/group IDs
+            {me?.plan?.max_telegram_groups
+              ? ` (สูงสุด ${me.plan.max_telegram_groups >= 99 ? "ไม่จำกัด" : me.plan.max_telegram_groups})`
+              : ""}
+            <input
+              value={telegramInput}
+              onChange={(e) => setTelegramInput(e.target.value)}
+              placeholder="-100..., -100... (คั่นด้วยจุลภาค)"
+              className="mt-1 w-full rounded-md border border-white/10 bg-ink-800 px-3 py-2.5 outline-none ring-ember-500 focus:ring-1"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={busy === "tg"}
+            className="rounded-md border border-white/10 px-4 py-2.5 text-sm hover:bg-white/5 disabled:opacity-60"
+          >
+            บันทึก Telegram
+          </button>
+        </form>
 
         <form
           onSubmit={addDomain}
