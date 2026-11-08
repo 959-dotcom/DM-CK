@@ -107,7 +107,11 @@ DATABASE_URL=postgres://... npm run migrate
 
 ## Domain check assumptions
 
-We cannot egress from each Thai ISP vantage point in this environment. A single HTTP probe looks for ministry/ISP block-page fingerprints (`ถูกระงับ`, `block.go.th`, status 451, etc.) and mirrors the result across AIS/TRUE/DTAC/3BB/NT. Multi-ISP residential proxies are a future upgrade. Set `DEMO_FORCE_BLOCK=1` to force BLOCKED for alert demos.
+Engine: **DNS** (A/AAAA + CNAME sinkhole detection) + **HTTP(S)** fingerprinting for Thai ministry/ISP block pages (`ถูกระงับ`, `block.go.th`, `mdes.go.th`, status 451, carrier block hosts). Results persist as `ais_status` / `true_status` / `dtac_status` / `tbb_status` / `nt_status` on `domain_check_logs` and `domains.last_checked_at` / `domains.status`.
+
+**Limitation (honest):** this host has **no residential Thai ISP vantage**. We do not egress from AIS/TRUE/DTAC/3BB/NT networks, so carrier-only DNS hijacks can look SAFE here. Unless the HTML/URL names a specific ISP, the same public probe is mirrored across all five columns. Multi-egress / residential proxies are a future upgrade. Set `DEMO_FORCE_BLOCK=1` to force BLOCKED for alert demos.
+
+Dashboard: bulk paste (newline-separated, quota-aware), **Check All Now** (queued job + poll progress), search/filter, pagination.
 
 ## Publish (Cursor)
 
