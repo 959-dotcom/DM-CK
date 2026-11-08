@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { newId, sql } from "@/lib/db";
 import { runDomainCheck } from "@/lib/domain-check";
+import { parseDomainInput } from "@/lib/domain-url";
 import { domainQuotaForUser } from "@/lib/plans";
 import { handleRouteError, jsonError, jsonOk, withRateLimitHeaders } from "@/lib/api";
 import { assertCsrf } from "@/lib/security/csrf";
@@ -13,7 +14,7 @@ import {
 } from "@/lib/security/rate-limit";
 
 const createSchema = z.object({
-  url: z.string().min(3).max(500),
+  url: z.string().min(1).max(500),
 });
 
 export async function GET(req: NextRequest) {
@@ -67,6 +68,11 @@ export async function POST(req: NextRequest) {
     const user = await requireUser(req);
     const body = createSchema.parse(await req.json());
 
+    const parsed = parseDomainInput(body.url);
+    if (!parsed.ok) {
+      return jsonError(parsed.error, 400);
+    }
+
     const quota = await domainQuotaForUser(user.id);
     if (quota.used >= quota.total_slots) {
       return jsonError(
@@ -75,8 +81,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let url = body.url.trim();
-    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const url = parsed.url;
 
     const id = newId("dom");
     await sql(
