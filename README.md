@@ -91,6 +91,7 @@ DATABASE_URL=postgres://... npm run migrate
 | Var | Why |
 |-----|-----|
 | `JWT_SECRET` | Sign auth cookies |
+| `DMCK_HANDOFF_SECRET` | Same value as the hub. Verifies the 60-second Open token. At least 32 characters. Not `LAND_HANDOFF_SECRET`. |
 | `JWT_ACCESS_TTL` / `JWT_ACCESS_MAX_AGE_SEC` | Short-lived session (default 2h) |
 | `PROMPTPAY_ID` | Merchant ID (defaults to `0846301733`) |
 | `SLIPOK_API_KEY` (+ optional `SLIPOK_BRANCH_ID`) | Live slip verification |
@@ -104,6 +105,10 @@ DATABASE_URL=postgres://... npm run migrate
 | `MAX_SLIP_BYTES` / `LOGIN_MAX_*` | Upload size + brute-force lockout |
 
 `DATABASE_URL` is injected by Cursor publish-app when the app declares Postgres — do not hardcode it.
+
+## Hub Open
+
+The DB357 hub posts a 60-second HMAC token to `/auth/hub` when `can_access_dmck` is true. DM-CK checks `DMCK_HANDOFF_SECRET`, looks up an existing `users.email`, and sets the normal session cookie. It does not create an account, copy rows into the hub, or change the password. A missing or disabled email stops on this page. A direct visit to `/auth/hub` does not sign anyone in.
 
 ## Domain check assumptions
 
