@@ -9,6 +9,7 @@ import {
   RATE_PRESETS,
   rateLimit,
 } from "@/lib/security/rate-limit";
+import { databaseSchema } from "@/lib/db";
 import { getMeta, touchWorkerLastRun } from "@/lib/system-meta";
 
 function envPresent(name: string): boolean {
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
 
     return jsonOk({
       worker_last_run: parsed,
+      database_schema: databaseSchema(),
       env_health: {
         DATABASE_URL: envPresent("DATABASE_URL"),
         JWT_SECRET: envPresent("JWT_SECRET"),

@@ -2,8 +2,15 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
+import { DMCK_SCHEMA, isHubProjectDatabaseUrl } from "./dmckSchema.mjs";
 
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
+const useDmckSchema = isHubProjectDatabaseUrl(databaseUrl);
+
+/** `dmck` on the Hub project. `public` on the previous database and local PGlite. */
+export function databaseSchema(): "dmck" | "public" {
+  return useDmckSchema ? "dmck" : "public";
+}
 
 type GlobalDb = {
   __spinPool?: pg.Pool;
@@ -18,7 +25,12 @@ export async function sql<T = Record<string, unknown>>(
   params: unknown[] = [],
 ): Promise<T[]> {
   if (databaseUrl !== "") {
-    g.__spinPool ??= new pg.Pool({ connectionString: databaseUrl, max: 5 });
+    g.__spinPool ??= new pg.Pool({
+      connectionString: databaseUrl,
+      max: 5,
+      options: useDmckSchema ? `-c search_path=${DMCK_SCHEMA}` : undefined,
+    });
+    if (useDmckSchema) return queryDmckSchema<T>(g.__spinPool, text, params);
     return (await g.__spinPool.query(text, params)).rows as T[];
   }
   g.__spinPglite ??= startLocal().catch((error: unknown) => {
@@ -39,6 +51,31 @@ export async function sqlOne<T = Record<string, unknown>>(
 ): Promise<T | null> {
   const rows = await sql<T>(text, params);
   return rows[0] ?? null;
+}
+
+/**
+ * Pin every Hub query to schema dmck for this transaction.
+ * Transaction-mode poolers drop a session-level search_path between queries.
+ * `public` is omitted so a missing dmck table cannot fall through to hub tables.
+ */
+async function queryDmckSchema<T>(
+  pool: pg.Pool,
+  text: string,
+  params: unknown[],
+): Promise<T[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL search_path TO ${DMCK_SCHEMA}`);
+    const result = await client.query(text, params);
+    await client.query("COMMIT");
+    return result.rows as T[];
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function startLocal(): Promise<PGlite> {

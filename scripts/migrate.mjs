@@ -1,7 +1,15 @@
 import { readdir, readFile } from "node:fs/promises";
 import pg from "pg";
+import { isHubProjectDatabaseUrl } from "../src/lib/dmckSchema.mjs";
 
 const url = process.env.DATABASE_URL?.trim() ?? "";
+const unpooled = process.env.DATABASE_URL_UNPOOLED?.trim() ?? "";
+if (isHubProjectDatabaseUrl(url) || isHubProjectDatabaseUrl(unpooled)) {
+  console.log("migrate: Hub project detected. This script does not apply SQL there.");
+  console.log("migrate: Paste migrations/hub/dmck_schema.sql once in the Hub SQL editor.");
+  console.log("migrate: That file does not create users and does not alter public hub tables.");
+  process.exit(0);
+}
 const files = (await readdir("migrations").catch(() => []))
   .filter((f) => f.endsWith(".sql"))
   .sort();

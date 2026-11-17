@@ -10,7 +10,8 @@
     "seed": "node scripts/seed.mjs",
     "migrate": "node scripts/migrate.mjs",
     "worker": "tsx scripts/worker.mjs",
-    "test:handoff": "node --experimental-strip-types --test src/lib/hubHandoff.test.ts"
+    "test:handoff": "node --experimental-strip-types --test src/lib/hubHandoff.test.ts",
+    "test:schema": "node --experimental-strip-types --test src/lib/dmckSchema.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.15",
