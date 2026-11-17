@@ -10,8 +10,14 @@
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import { isHubProjectDatabaseUrl } from "../src/lib/dmckSchema.mjs";
 
 const url = process.env.DATABASE_URL?.trim() ?? "";
+if (isHubProjectDatabaseUrl(url)) {
+  console.log("seed: Hub project detected. Refusing to create users.");
+  console.log("seed: Plan rows are in migrations/hub/dmck_schema.sql. Accounts stay empty.");
+  process.exit(0);
+}
 if (!url) {
   console.log(
     "seed: DATABASE_URL unset — local PGlite auto-seeds on first API call.",

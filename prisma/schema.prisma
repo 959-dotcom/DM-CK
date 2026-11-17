@@ -1,5 +1,7 @@
 // Prisma-shaped schema kept in sync with migrations/*.sql
 // Runtime uses pg + PGlite via src/lib/db.ts (publish-app compatible).
+// On the Hub project these tables live in schema dmck (migrations/hub/dmck_schema.sql).
+// Local PGlite and the previous database stay in public.
 
 generator client {
   provider = "prisma-client-js"

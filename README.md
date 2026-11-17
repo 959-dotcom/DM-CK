@@ -104,7 +104,17 @@ DATABASE_URL=postgres://... npm run migrate
 | `CRON_SECRET` | Vercel Cron bearer for `/api/worker/tick` |
 | `MAX_SLIP_BYTES` / `LOGIN_MAX_*` | Upload size + brute-force lockout |
 
-`DATABASE_URL` is injected by Cursor publish-app when the app declares Postgres — do not hardcode it.
+`DATABASE_URL` is the Postgres connection. Do not hardcode it.
+
+## Hub database
+
+DM-CK tables on the Hub project (`https://aozoakeghslgnhdegdyr.supabase.co`, ref `aozoakeghslgnhdegdyr`) live in schema `dmck`. Hub tables stay in `public`. This app does not use Supabase Auth and does not read `NEXT_PUBLIC_SUPABASE_URL`.
+
+1. Paste `migrations/hub/dmck_schema.sql` once in the Hub SQL editor. It creates schema `dmck`, the DM-CK tables, and the plan catalog. It does not insert users, does not alter `public` hub tables, and does not touch the previous DM-CK database.
+2. Set the existing `DATABASE_URL` to that project's session pooler URI (port 5432) or the direct URI `db.aozoakeghslgnhdegdyr.supabase.co:5432`. Set `DATABASE_URL_UNPOOLED` to the direct URI. Do not invent a new variable name.
+3. Redeploy. Queries then use schema `dmck` (`SET LOCAL search_path TO dmck` on each transaction, with `public` left out). `/auth/hub` still looks up an existing `users.email` and does not create an account.
+
+Until `DATABASE_URL` contains the hub project ref, the running app keeps using the previous database. `npm run migrate` and `npm run seed` refuse that URL so they cannot create `public` tables or users there. Accounts are not copied by this change. `dmck.users` stays empty until rows are copied by hand.
 
 ## Hub Open
 
